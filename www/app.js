@@ -14,6 +14,8 @@
   var editingId = null;
   var detailId = null;
   var refreshTimer = null;
+  var sortable = null;
+  var justDragged = false;   // 拖拽刚结束时抑制 click 误开详情
 
   // ---------------- 存储 ----------------
   function defaultAccount(name, provider) {
@@ -233,8 +235,13 @@
     var wrap = document.getElementById('cards');
     wrap.innerHTML = store.accounts.map(cardHTML).join('');
     wrap.querySelectorAll('.card').forEach(function (el) {
-      el.addEventListener('click', function () { openDetail(el.getAttribute('data-id')); });
+      el.addEventListener('click', function (e) {
+        if (justDragged) return;                                  // 拖完那一下不要打开详情
+        if (e.target.closest && e.target.closest('.drag-handle')) return; // 点手柄不打开详情
+        openDetail(el.getAttribute('data-id'));
+      });
     });
+    initSortable();
     document.getElementById('empty').hidden = store.accounts.length > 0;
     if (detailId && !document.getElementById('detailSheet').hidden) renderDetail();
   }
@@ -245,6 +252,46 @@
     if (!times.length) { el.textContent = '还没有刷新过'; return; }
     el.textContent = '上次更新 ' + fmtTime(Math.max.apply(null, times)) + ' · 共 ' + store.accounts.length + ' 个账号';
   }
+
+  // ---------------- 卡片拖拽排序 ----------------
+  // 顺序直接体现在 store.accounts 数组里，备份/导入天然兼容；
+  // 用 SortableJS 的触摸 fallback（Android WebView 原生 HTML5 DnD 不可靠），
+  // 只允许从右侧拖拽手柄开始，避免与页面滚动、卡片点击冲突。
+  function initSortable() {
+    var wrap = document.getElementById('cards');
+    if (!wrap || typeof Sortable === 'undefined') return;
+    if (sortable) { sortable.destroy(); sortable = null; }
+    sortable = Sortable.create(wrap, {
+      handle: '.drag-handle',
+      animation: 180,
+      delay: 120,                 // 触摸时短按一下再拖，防误触
+      delayOnTouchOnly: true,
+      touchStartThreshold: 3,
+      forceFallback: true,
+      fallbackTolerance: 3,
+      scroll: true,
+      bubbleScroll: true,
+      ghostClass: 'card-ghost',
+      chosenClass: 'card-chosen',
+      dragClass: 'card-drag',
+      onEnd: function () {
+        var byId = {};
+        store.accounts.forEach(function (a) { byId[a.id] = a; });
+        var ids = Array.prototype.map.call(wrap.querySelectorAll('.card'), function (el) {
+          return el.getAttribute('data-id');
+        });
+        var next = ids.map(function (id) { return byId[id]; }).filter(Boolean);
+        if (next.length === store.accounts.length) {
+          store.accounts = next;   // 重排数据，下次 render 按新顺序渲染
+          save();                  // 持久化到 localStorage
+          renderSubtitle();
+        }
+        justDragged = true;        // 拖完紧随的 click 不要打开详情
+        setTimeout(function () { justDragged = false; }, 350);
+      }
+    });
+  }
+
   function cardHTML(acc) {
     var p = PROVIDERS[acc.provider] || PROVIDERS['glm-cn'];
     var st = stateOf(acc);
@@ -295,7 +342,9 @@
     return '<article class="card' + (acc.result && !acc.result.ok ? ' error' : '') + '" data-id="' + acc.id + '" style="--accent:' + p.color + ';--badge-bg:' + p.badgeBg + ';--state:' + st.color + '">' +
       '<div class="card-head">' +
         '<div class="card-id"><span class="provider-dot"></span><div><div class="card-name">' + esc(acc.name) + '</div><div class="card-provider">' + esc(p.label) + planText + '</div></div></div>' +
-        '<span class="badge">' + esc(st.label) + '</span>' +
+        '<div class="card-head-right"><span class="badge">' + esc(st.label) + '</span>' +
+          '<span class="drag-handle" title="长按拖动排序" aria-label="拖动排序"><svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg></span>' +
+        '</div>' +
       '</div>' +
       mainHtml +
       topBar +

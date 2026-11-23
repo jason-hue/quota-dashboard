@@ -86,6 +86,18 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 .card-name { font-size: 15px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .card-provider { font-size: 11px; color: var(--muted); margin-top: 2px; }
 .badge { font-size: 10px; padding: 3px 8px; border-radius: 8px; background: var(--badge-bg, var(--brand-soft)); color: var(--accent, var(--brand)); font-weight: 600; white-space: nowrap; }
+.card-head-right { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+.drag-handle {
+  width: 26px; height: 26px; margin: -4px -5px -4px 0; flex: 0 0 26px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 8px; color: var(--muted); cursor: grab;
+  touch-action: none; -webkit-user-select: none; user-select: none;
+}
+.drag-handle:active { background: var(--brand-soft); cursor: grabbing; }
+.card-ghost { opacity: .3; }
+.card-chosen { box-shadow: 0 8px 22px rgba(31,45,97,.16); }
+.card-chosen:active { transform: none; }
+.card-drag { box-shadow: 0 14px 34px rgba(31,45,97,.26); opacity: .96; }
 
 .card-main { display: flex; align-items: flex-end; justify-content: space-between; margin: 16px 0 9px; gap: 12px; }
 .metric-label { font-size: 11px; color: var(--muted); margin-bottom: 2px; }
