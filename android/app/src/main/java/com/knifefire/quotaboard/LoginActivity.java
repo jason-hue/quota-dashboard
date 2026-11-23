@@ -46,6 +46,11 @@ public class LoginActivity extends Activity {
     private ProgressBar progress;
     private String provider;
     private volatile boolean finished = false;
+    // 每次打开都必须是干净会话：清掉上一次账号残留的 Cookie / localStorage，
+    // 否则第二个账号会被第一个账号的登录态抢占，直接回填旧凭证。
+    private volatile boolean firstLoadHandled = false; // 首次加载是否已清理+reload
+    private volatile boolean allowCapture = false;     // 清理完成、允许抓取凭证
+    private volatile boolean dsScanStarted = false;
 
     private static final String URL_GLM_CN = "https://bigmodel.cn/coding-plan";
     private static final String URL_GLM_GLOBAL = "https://z.ai/manage-apikey/coding-plan/personal/usage";
@@ -123,9 +128,25 @@ public class LoginActivity extends Activity {
             @Override
             public void onPageFinished(WebView view, String url) {
                 progress.setProgress(100);
+                // 首次加载：清掉当前站点 localStorage 里的旧 token 后 reload，
+                // 确保页面以「未登录」状态重新渲染，用户必须真正登录新账号。
+                // 清完之前 allowCapture=false，绝不抓取，否则会抓到上一账号的残留凭证。
+                if (!firstLoadHandled) {
+                    firstLoadHandled = true;
+                    String clearJs = "(function(){try{localStorage.clear();sessionStorage.clear();}catch(e){}})()";
+                    view.evaluateJavascript(clearJs, value -> {
+                        allowCapture = true;
+                        view.reload();
+                    });
+                    return;
+                }
+                allowCapture = true;
                 view.postDelayed(() -> scanLocalStorage(view), 1500);
                 view.postDelayed(() -> scanLocalStorage(view), 4000);
-                if ("deepseek".equals(provider)) startScanDeepSeekKey(view);
+                if ("deepseek".equals(provider) && !dsScanStarted) {
+                    dsScanStarted = true;
+                    startScanDeepSeekKey(view);
+                }
             }
 
             @Override
@@ -146,6 +167,17 @@ public class LoginActivity extends Activity {
             }
         });
 
+        // 关键：移除上一次登录遗留的 Cookie，否则用第二个账号登录时网页仍处于第一个账号的
+        // 登录态，请求头/自动请求会带上旧凭证，导致直接回填成上一账号的 key。
+        // 注意：绝不能调用 WebStorage.deleteAllData()——那会连主 App 存在 capacitor origin 的
+        // 账号凭证一起清掉。localStorage 的旧 token 在下面 onPageFinished 里用 JS 只清当前站点。
+        try {
+            CookieManager.getInstance().removeAllCookies(null);
+            CookieManager.getInstance().flush();
+        } catch (Exception e) {
+            Log.w(TAG, "clear cookies err " + e.getMessage());
+        }
+
         android.widget.LinearLayout.LayoutParams webLp = new android.widget.LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f);
         root.addView(web, webLp);
@@ -161,7 +193,7 @@ public class LoginActivity extends Activity {
 
     /** 从网络请求头抓取凭证 */
     private void inspectHeaders(String url, Map<String, String> headers) {
-        if (headers == null || finished) return;
+        if (headers == null || finished || !allowCapture) return;
         String auth = null;
         for (Map.Entry<String, String> e : headers.entrySet()) {
             if ("authorization".equalsIgnoreCase(e.getKey())) auth = e.getValue();
@@ -196,7 +228,7 @@ public class LoginActivity extends Activity {
 
     /** 扫描 localStorage 找 token（兜底） */
     private void scanLocalStorage(WebView view) {
-        if (finished) return;
+        if (finished || !allowCapture) return;
         String js = "(function(){var out={};try{for(var i=0;i<localStorage.length;i++){"
                 + "var k=localStorage.key(i);out[k]=localStorage.getItem(k);}}catch(e){}"
                 + "return JSON.stringify(out);})()";

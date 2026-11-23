@@ -249,19 +249,18 @@
     var p = PROVIDERS[acc.provider] || PROVIDERS['glm-cn'];
     var st = stateOf(acc);
     var mainLabel = '', mainValue = '', side = '';
+    var glm = null;
 
     var quotaLines = '';
     if (acc.result && acc.result.ok && acc.provider !== 'deepseek') {
-      var g = parseGLM(acc.result);
-      if (g && g.primary) {
-        mainLabel = '最紧张窗口剩余';
-        mainValue = Math.round(g.primary.remainPct) + '<span class="unit">%</span>';
-        side = '套餐 ' + esc(g.level) + '<br>' + esc(g.primary.title);
+      glm = parseGLM(acc.result);
+      if (glm && glm.primary) {
+        // 顶部大百分比已去掉：下面各窗口已直接显示，不再重复。套餐等级挪到 provider 后面。
         // 直接列出各额度窗口（5小时 / 本周 / ...），周额度用尽一眼可见
-        quotaLines = '<div class="quota-lines">' + (g.sorted || g.windows).map(function (w) {
+        quotaLines = '<div class="quota-lines">' + (glm.sorted || glm.windows).map(function (w) {
           var c = w.remainPct <= 10 ? '#f04438' : w.remainPct <= 30 ? '#f79009' : '#12b76a';
           return '<div class="quota-line">' +
-            '<span class="ql-name">' + esc(w.short || w.title) + (w === g.primary ? ' <em>最紧</em>' : '') + '</span>' +
+            '<span class="ql-name">' + esc(w.short || w.title) + (w === glm.primary ? ' <em>最紧</em>' : '') + '</span>' +
             '<span class="ql-bar"><i style="width:' + Math.max(0, Math.min(100, w.remainPct)) + '%;background:' + c + '"></i></span>' +
             '<span class="ql-pct" style="color:' + c + '">' + Math.round(w.remainPct) + '%</span>' +
           '</div>';
@@ -285,13 +284,21 @@
     }
 
     var errLine = acc.result && !acc.result.ok ? '<div class="err-text">' + esc(acc.result.error) + '</div>' : '';
+    // GLM 成功卡片：去掉顶部大百分比（下面各窗口已显示），套餐等级挪到 provider 名称后面
+    var planText = (glm && glm.level && glm.level !== '—') ? ' · 套餐 ' + esc(glm.level) : '';
+    var isGLMOk = !!(glm && glm.primary);
+    var mainHtml = isGLMOk ? '' :
+      '<div class="card-main"><div><div class="metric-label">' + mainLabel + '</div><div class="metric-value">' + mainValue + '</div></div><div class="metric-side">' + side + '</div></div>';
+    // GLM 卡片各窗口已有自己的进度条，顶部这条总进度条就是多余的那条，去掉
+    var topBar = isGLMOk ? '' :
+      '<div class="bar"><i style="width:' + Math.max(0, Math.min(100, st.pct)) + '%"></i></div>';
     return '<article class="card' + (acc.result && !acc.result.ok ? ' error' : '') + '" data-id="' + acc.id + '" style="--accent:' + p.color + ';--badge-bg:' + p.badgeBg + ';--state:' + st.color + '">' +
       '<div class="card-head">' +
-        '<div class="card-id"><span class="provider-dot"></span><div><div class="card-name">' + esc(acc.name) + '</div><div class="card-provider">' + esc(p.label) + '</div></div></div>' +
+        '<div class="card-id"><span class="provider-dot"></span><div><div class="card-name">' + esc(acc.name) + '</div><div class="card-provider">' + esc(p.label) + planText + '</div></div></div>' +
         '<span class="badge">' + esc(st.label) + '</span>' +
       '</div>' +
-      '<div class="card-main"><div><div class="metric-label">' + mainLabel + '</div><div class="metric-value">' + mainValue + '</div></div><div class="metric-side">' + side + '</div></div>' +
-      '<div class="bar"><i style="width:' + Math.max(0, Math.min(100, st.pct)) + '%"></i></div>' +
+      mainHtml +
+      topBar +
       quotaLines +
       errLine +
       '<div class="card-foot"><span>' + (acc.lastAt ? ('更新于 ' + fmtTime(acc.lastAt)) : '尚未更新') + '</span><span>查看详情 ›</span></div>' +
@@ -833,7 +840,18 @@
   // 启动时延时检测一次剪贴板（等 WebView 获得焦点，Android 后台读剪贴板会失败）
   setTimeout(autoImportFromClipboard, 1200);
 
+  // Capacitor 资源随 APK 打包在本地，无需 Service Worker 缓存；
+  // 反而会导致改了前端后真机一直读到旧缓存。这里主动注销旧 SW 并清空其缓存。
   if ('serviceWorker' in navigator) {
-    window.addEventListener('load', function () { navigator.serviceWorker.register('sw.js').catch(function () {}); });
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.getRegistrations().then(function (regs) {
+        regs.forEach(function (r) { r.unregister(); });
+      }).catch(function () {});
+      if (window.caches && caches.keys) {
+        caches.keys().then(function (keys) {
+          keys.forEach(function (k) { caches.delete(k); });
+        }).catch(function () {});
+      }
+    });
   }
 })();
