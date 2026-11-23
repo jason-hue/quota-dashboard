@@ -41,6 +41,17 @@ object Api {
         else "Bearer $t"
     }
 
+    /** 详情页「认证方式」展示实际生效的请求头模式 */
+    private fun modeOf(acc: Account): String {
+        val t = acc.token.trim()
+        return when {
+            t.startsWith("Bearer ", ignoreCase = true) -> "BEARER"
+            acc.authMode == "raw" -> "RAW"
+            t.startsWith("eyJ") -> "RAW"
+            else -> "BEARER"
+        }
+    }
+
     private fun get(url: String, acc: Account, extra: Map<String, String> = emptyMap()): String {
         val b = Request.Builder().url(url)
             .header("Authorization", authHeader(acc))
@@ -55,7 +66,8 @@ object Api {
     }
 
     private fun fetchGLM(acc: Account): Account {
-        var url = baseOf(acc.provider) + "/api/monitor/usage/quota/limit"
+        val base = baseOf(acc.provider)
+        var url = "$base/api/monitor/usage/quota/limit"
         if (acc.planType.isNotBlank()) url += "?type=${acc.planType}"
         val extra = mapOf(
             "bigmodel-organization" to acc.org,
@@ -70,22 +82,35 @@ object Api {
         val limits = data.optJSONArray("limits")
         val wins = mutableListOf<QuotaWindow>()
         if (limits != null) for (i in 0 until limits.length()) {
-            val l = limits.getJSONObject(i)
-            val usedPct = l.optDouble("percentage", 0.0).toInt()
-            val unit = l.optInt("unit", 0)
-            val number = l.optInt("number", 0)
-            wins.add(QuotaWindow(
-                short = QuotaWindow.shortOf(unit, number),
-                unit = unit,
-                usedPct = usedPct,
-                remainPct = (100 - usedPct).coerceIn(0, 100),
-                cap = l.optDouble("usage", 0.0),
-                used = l.optDouble("currentValue", 0.0),
-                resetAt = l.optString("nextResetTime", "").ifEmpty { null }
-            ))
+            val l = limits.optJSONObject(i) ?: continue
+            wins.add(QuotaWindow.fromJson(l))
         }
-        return acc.copy(level = level, windows = QuotaWindow.sort(wins), error = null,
-            raw = body, lastAt = System.currentTimeMillis())
+
+        // 账户余额接口：失败不影响额度展示，仅记录原因（与 WebView 版一致）
+        var accountBalance = AccountBalance()
+        var balanceError = ""
+        try {
+            val bBody = get("$base/api/biz/account/query-customer-account-report", acc)
+            val bRoot = JSONObject(bBody)
+            val bCode = bRoot.optInt("code", 200)
+            if (bCode != 200 || !bRoot.optBoolean("success", true)) {
+                throw Exception(bRoot.optString("msg", "业务错误 $bCode"))
+            }
+            accountBalance = AccountBalance.fromJson(bRoot)
+        } catch (e: Exception) {
+            balanceError = e.message ?: "请求失败"
+        }
+
+        return acc.copy(
+            level = level,
+            windows = QuotaWindow.sort(wins),
+            error = null,
+            raw = body,
+            mode = modeOf(acc),
+            balanceError = balanceError,
+            accountBalance = accountBalance,
+            lastAt = System.currentTimeMillis()
+        )
     }
 
     private fun fetchDeepSeek(acc: Account): Account {
@@ -94,16 +119,23 @@ object Api {
         if (root.has("error")) throw Exception(root.optJSONObject("error")?.optString("message", "接口错误") ?: "接口错误")
         // 余额接口顶层就是 { is_available, balance_infos }，无 data 包裹；兼容 data 包裹的旧格式
         val data = root.optJSONObject("data") ?: root
-        val balance = data.optJSONArray("balance_infos")?.optJSONObject(0) ?: JSONObject()
-        val total = balance.optDouble("total_balance", 0.0)
-        val currency = balance.optString("currency", "CNY")
+        val infos = mutableListOf<BalanceInfo>()
+        val arr = data.optJSONArray("balance_infos")
+        if (arr != null) for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            infos.add(BalanceInfo.fromJson(o))
+        }
+        val first = infos.firstOrNull()
         // DeepSeek 不返回额度窗口，用余额总额作为单一指标
         return acc.copy(
-            balanceTotal = total,
-            balanceCurrency = currency,
+            balanceTotal = first?.total ?: 0.0,
+            balanceCurrency = first?.currency ?: "CNY",
+            balanceInfos = infos,
+            dsAvailable = data.optBoolean("is_available", true),
             windows = emptyList(),
             error = null,
             raw = body,
+            mode = modeOf(acc),
             lastAt = System.currentTimeMillis()
         )
     }
