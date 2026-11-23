@@ -467,7 +467,8 @@ private fun WindowRow(w: QuotaWindow, isPrimary: Boolean) {
             modifier = Modifier.weight(1f).height(8.dp),
             color = color,
             trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-            strokeCap = androidx.compose.ui.graphics.StrokeCap.Round
+            strokeCap = androidx.compose.ui.graphics.StrokeCap.Round,
+            drawStopIndicator = {}
         )
         Spacer(Modifier.width(10.dp))
         Text("${w.remainPct}%", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = color,

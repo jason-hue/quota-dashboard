@@ -134,7 +134,8 @@ private fun WindowDetail(w: QuotaWindow, isPrimary: Boolean) {
                 modifier = Modifier.fillMaxWidth().height(8.dp),
                 color = color,
                 trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                strokeCap = androidx.compose.ui.graphics.StrokeCap.Round
+                strokeCap = androidx.compose.ui.graphics.StrokeCap.Round,
+                drawStopIndicator = {}
             )
             Spacer(Modifier.height(8.dp))
             Row {
