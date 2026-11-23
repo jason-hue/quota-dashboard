@@ -1,4 +1,4 @@
-var CACHE = 'quota-board-v4';
+var CACHE = 'quota-board-v5';
 var ASSETS = ['./', './index.html', './styles.css', './app.js', './manifest.webmanifest', './icon.svg'];
 
 self.addEventListener('install', function (e) {

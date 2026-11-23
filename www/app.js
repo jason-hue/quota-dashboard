@@ -145,8 +145,17 @@
     var remain = l.remaining != null ? Number(l.remaining) : Math.max(0, cap - used);
     var kind = l.type === 'TOKENS_LIMIT' ? 'Token 池' : '调用池';
     var n = l.number > 1 ? l.number : '';
+    // 短标签：用于卡片上直接展示（如 "5小时"、"本周"）
+    var short;
+    if (l.unit === 6) short = '本周';
+    else if (l.unit === 3) short = (l.number || 5) + '小时';
+    else if (l.unit === 5) short = '本月';
+    else if (l.unit === 1) short = (l.number > 1 ? l.number : '每') + '天';
+    else short = n + unitName(l.unit);
     return {
       title: kind + ' · ' + n + unitName(l.unit) + '窗口',
+      short: short,
+      unit: l.unit, number: l.number,
       usedPct: usedPct,
       remainPct: Math.max(0, 100 - usedPct),
       cap: cap, used: used, remain: remain,
@@ -160,9 +169,16 @@
     var data = result.quota && result.quota.data ? result.quota.data : {};
     var limits = Array.isArray(data.limits) ? data.limits : [];
     var windows = limits.map(parseWindow);
+    // 卡片展示顺序：小时窗口(5h)在前，其次周/月/天，保证「周额度」紧跟在「5小时」下面
+    var rank = { 3: 0, 1: 1, 6: 2, 5: 3 }; // unit: 3小时 1天 6周 5月
+    var sorted = windows.slice().sort(function (a, b) {
+      return (rank[a.unit] != null ? rank[a.unit] : 9) - (rank[b.unit] != null ? rank[b.unit] : 9);
+    });
     var primary = null;
     windows.forEach(function (w) { if (!primary || w.remainPct < primary.remainPct) primary = w; });
-    return { level: data.level || '—', windows: windows, primary: primary };
+    var weekly = null;
+    windows.forEach(function (w) { if (w.unit === 6) weekly = w; });
+    return { level: data.level || '—', windows: windows, sorted: sorted, primary: primary, weekly: weekly };
   }
   function parseDS(result) {
     if (!result || !result.ok) return null;
@@ -234,12 +250,22 @@
     var st = stateOf(acc);
     var mainLabel = '', mainValue = '', side = '';
 
+    var quotaLines = '';
     if (acc.result && acc.result.ok && acc.provider !== 'deepseek') {
       var g = parseGLM(acc.result);
       if (g && g.primary) {
         mainLabel = '最紧张窗口剩余';
         mainValue = Math.round(g.primary.remainPct) + '<span class="unit">%</span>';
         side = '套餐 ' + esc(g.level) + '<br>' + esc(g.primary.title);
+        // 直接列出各额度窗口（5小时 / 本周 / ...），周额度用尽一眼可见
+        quotaLines = '<div class="quota-lines">' + (g.sorted || g.windows).map(function (w) {
+          var c = w.remainPct <= 10 ? '#f04438' : w.remainPct <= 30 ? '#f79009' : '#12b76a';
+          return '<div class="quota-line">' +
+            '<span class="ql-name">' + esc(w.short || w.title) + (w === g.primary ? ' <em>最紧</em>' : '') + '</span>' +
+            '<span class="ql-bar"><i style="width:' + Math.max(0, Math.min(100, w.remainPct)) + '%;background:' + c + '"></i></span>' +
+            '<span class="ql-pct" style="color:' + c + '">' + Math.round(w.remainPct) + '%</span>' +
+          '</div>';
+        }).join('') + '</div>';
       }
     } else if (acc.result && acc.result.ok && acc.provider === 'deepseek') {
       var d = parseDS(acc.result);
@@ -266,6 +292,7 @@
       '</div>' +
       '<div class="card-main"><div><div class="metric-label">' + mainLabel + '</div><div class="metric-value">' + mainValue + '</div></div><div class="metric-side">' + side + '</div></div>' +
       '<div class="bar"><i style="width:' + Math.max(0, Math.min(100, st.pct)) + '%"></i></div>' +
+      quotaLines +
       errLine +
       '<div class="card-foot"><span>' + (acc.lastAt ? ('更新于 ' + fmtTime(acc.lastAt)) : '尚未更新') + '</span><span>查看详情 ›</span></div>' +
     '</article>';
