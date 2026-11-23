@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#f4f6fb">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="额度看板">
+<title>额度看板</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-logo">Q</div>
+      <div class="brand-text">
+        <h1>额度看板</h1>
+        <div class="subtitle" id="subtitle">还没有刷新过</div>
+      </div>
+    </div>
+    <div class="top-actions">
+      <button class="icon-btn" id="btnRefresh" title="刷新全部" aria-label="刷新全部">
+        <svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6"/></svg>
+      </button>
+      <button class="icon-btn primary" id="btnAdd" title="添加账号" aria-label="添加账号">
+        <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+      </button>
+      <button class="icon-btn" id="btnSettings" title="设置" aria-label="设置">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4v-.2a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.6-1H3v-4h.2a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.4 7 7.2 4.2l.1.1a1.7 1.7 0 0 0 1.9.3H9.3a1.7 1.7 0 0 0 1-1.6V2.8h4v.2a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9v.1a1.7 1.7 0 0 0 1.6 1h.2v4h-.2a1.7 1.7 0 0 0-1.6 1Z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="tip" id="tip" hidden></div>
+
+  <main class="cards" id="cards"></main>
+
+  <div class="empty" id="empty" hidden>
+    <div class="empty-icon">＋</div>
+    <h2>还没有账号</h2>
+    <p>点右上角的 ＋ 添加 GLM 或 DeepSeek 账号</p>
+  </div>
+
+  <div class="footer-note">凭证只保存在这台设备的浏览器里，不上传任何服务器</div>
+</div>
+
+<div class="overlay" id="overlay" hidden></div>
+
+<!-- 详情 -->
+<section class="sheet" id="detailSheet" hidden>
+  <div class="grabber"></div>
+  <div class="sheet-head">
+    <div class="sheet-title-wrap">
+      <span class="provider-dot" id="detailDot"></span>
+      <div>
+        <h2 id="detailTitle"></h2>
+        <div class="muted" id="detailSub"></div>
+      </div>
+    </div>
+    <div class="sheet-head-actions">
+      <button class="text-btn" id="detailEdit">编辑</button>
+      <button class="icon-btn ghost" id="detailClose" aria-label="关闭">
+        <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>
+      </button>
+    </div>
+  </div>
+  <div class="sheet-body" id="detailBody"></div>
+</section>
+
+<!-- 编辑 -->
+<section class="sheet" id="editSheet" hidden>
+  <div class="grabber"></div>
+  <div class="sheet-head">
+    <div class="sheet-title-wrap"><div><h2 id="editTitle">添加账号</h2><div class="muted">凭证只存在本机</div></div></div>
+    <button class="icon-btn ghost" id="editClose" aria-label="关闭">
+      <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>
+    </button>
+  </div>
+  <div class="sheet-body">
+    <form id="editForm" autocomplete="off">
+      <label class="field">
+        <span>备注名称</span>
+        <input type="text" id="fName" placeholder="例如：GLM 主号 / DeepSeek 小号" required>
+      </label>
+
+      <label class="field">
+        <span>平台</span>
+        <select id="fProvider">
+          <option value="glm-cn">智谱 GLM Coding Plan（国内）</option>
+          <option value="glm-global">Z.AI GLM Coding Plan（国际）</option>
+          <option value="deepseek">DeepSeek</option>
+        </select>
+      </label>
+
+      <button type="button" class="login-btn" id="btnAutoLogin">
+        <svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 10 10"/></svg>
+        <span>一键登录自动获取凭证 <em>免手动复制</em></span>
+      </button>
+      <div class="login-status" id="loginStatus" hidden></div>
+
+      <label class="field">
+        <span>凭证 <em>可点上方登录自动填入，或手动粘贴</em></span>
+        <textarea id="fToken" rows="3" placeholder="sk-... 或 eyJ... 或 xxx.xxx"></textarea>
+      </label>
+
+      <div id="glmExtra">
+        <label class="field">
+          <span>认证方式 <em>不确定就保持自动识别</em></span>
+          <select id="fAuthMode">
+            <option value="auto">自动识别（推荐）</option>
+            <option value="bearer">强制 Bearer 头</option>
+            <option value="raw">强制裸 Key（不加 Bearer）</option>
+          </select>
+        </label>
+
+        <div class="field-row">
+          <label class="field">
+            <span>组织 ID <em>新版积分套餐需要</em></span>
+            <input type="text" id="fOrg" placeholder="bigmodel-organization">
+          </label>
+          <label class="field">
+            <span>项目 ID <em>新版积分套餐需要</em></span>
+            <input type="text" id="fProject" placeholder="bigmodel-project">
+          </label>
+        </div>
+
+        <label class="field">
+          <span>套餐类型 <em>仅新版积分套餐需要</em></span>
+          <select id="fPlanType">
+            <option value="">不填（旧版套餐）</option>
+            <option value="1">个人套餐 type=1</option>
+            <option value="2">团队套餐 type=2</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="form-note" id="howto"></div>
+
+      <div class="form-actions">
+        <button type="button" class="btn danger ghost" id="btnDelete" hidden>删除账号</button>
+        <div class="spacer"></div>
+        <button type="button" class="btn ghost" id="btnCancel">取消</button>
+        <button type="submit" class="btn primary" id="btnSave">保存</button>
+      </div>
+    </form>
+  </div>
+</section>
+
+<!-- 设置 -->
+<section class="sheet" id="settingsSheet" hidden>
+  <div class="grabber"></div>
+  <div class="sheet-head">
+    <div class="sheet-title-wrap"><div><h2>设置</h2><div class="muted">本机配置</div></div></div>
+    <button class="icon-btn ghost" id="settingsClose" aria-label="关闭">
+      <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>
+    </button>
+  </div>
+  <div class="sheet-body">
+    <label class="switch-row">
+      <div><strong>自动刷新</strong><div class="muted">打开应用时和按间隔自动更新</div></div>
+      <input type="checkbox" id="fAutoRefresh">
+    </label>
+    <label class="field">
+      <span>刷新间隔</span>
+      <select id="fInterval">
+        <option value="1">每 1 分钟</option>
+        <option value="5">每 5 分钟</option>
+        <option value="15">每 15 分钟</option>
+        <option value="30">每 30 分钟</option>
+      </select>
+    </label>
+    <div class="about">
+      <strong>关于凭证</strong>
+      <p>支持三种形式：平台控制台创建的 API Key、带 Bearer 前缀的令牌、以及从浏览器复制的登录令牌（eyJ 开头）。智谱新版积分套餐还需在编辑里补上组织 ID 和项目 ID。</p>
+      <p>所有凭证只保存在当前浏览器的本地存储中。应用是纯静态页面，直接向服务商查询，不经过任何中间服务器。</p>
+    </div>
+    <div class="about" style="margin-top:16px">
+      <strong>备份凭证（重要）</strong>
+      <p>DeepSeek 的 Key 只在创建时显示一次。建议导出备份存到备忘录或网盘，清除数据后可一键恢复，无需重新创建 Key。</p>
+      <p><b>自动导入</b>：复制备份文本后打开 App（或切回前台），会自动识别并恢复。当前无账号时直接恢复；已有账号时会先询问并合并。</p>
+    </div>
+    <label class="switch-row" style="margin-top:12px">
+      <div><strong>剪贴板自动导入</strong><div class="muted">检测到备份文本时自动提示恢复</div></div>
+      <input type="checkbox" id="fAutoImport">
+    </label>
+    <div class="field-row" style="margin-top:12px">
+      <button class="btn ghost" id="btnExport">导出备份</button>
+      <button class="btn ghost" id="btnImport">导入备份</button>
+    </div>
+    <button class="btn danger block" id="btnClearAll">清空所有账号和凭证</button>
+  </div>
+</section>
+
+<section class="sheet" id="backupSheet" hidden>
+  <div class="grabber"></div>
+  <div class="sheet-head">
+    <div class="sheet-title-wrap"><div><h2 id="backupTitle">备份凭证</h2><div class="muted" id="backupSubtitle">复制到安全的地方保存</div></div></div>
+    <button class="icon-btn ghost" id="backupClose" aria-label="关闭">
+      <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>
+    </button>
+  </div>
+  <div class="sheet-body">
+    <div class="warn-box" id="backupWarn" hidden></div>
+    <label class="field">
+      <span id="backupLabel">备份内容 <em>请完整复制保存</em></span>
+      <textarea id="backupText" rows="7" spellcheck="false" autocapitalize="off" autocomplete="off"></textarea>
+    </label>
+    <div id="backupActionsExport">
+      <button class="btn primary block" id="btnCopyBackup">复制备份内容</button>
+      <button class="btn ghost block" id="btnShareBackup">分享 / 保存到文件</button>
+    </div>
+    <div id="backupActionsImport" hidden>
+      <p class="muted" style="margin:4px 0 12px;line-height:1.6">选择恢复方式：合并会保留现有账号并加入备份中的新账号；覆盖会清空当前全部账号。</p>
+      <button class="btn primary block" id="btnImportMerge" style="margin-top:0">合并到现有</button>
+      <button class="btn ghost block" id="btnImportReplace">覆盖全部</button>
+    </div>
+  </div>
+</section>
+
+<script src="app.js"></script>
+</body>
+</html>

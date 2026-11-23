@@ -1,0 +1,13 @@
+{
+  "appId": "com.knifefire.quotaboard",
+  "appName": "额度看板",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https",
+    "allowNavigation": ["bigmodel.cn", "open.bigmodel.cn", "api.z.ai", "api.deepseek.com"]
+  },
+  "android": {
+    "allowMixedContent": false,
+    "captureInput": false
+  }
+}

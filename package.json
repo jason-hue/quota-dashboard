@@ -1,0 +1,17 @@
+{
+  "name": "quota-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build:android": "cap sync android && cd android && gradlew.bat assembleDebug"
+  },
+  "dependencies": {
+    "@capacitor/android": "^7.0.0",
+    "@capacitor/clipboard": "^7.0.4",
+    "@capacitor/core": "^7.0.0",
+    "@capacitor/share": "^7.0.4"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^7.0.0"
+  }
+}
