@@ -2,6 +2,7 @@ package com.knifefire.quotaboard.nativeui
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -14,6 +15,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -462,14 +464,18 @@ private fun WindowRow(w: QuotaWindow, isPrimary: Boolean) {
     Spacer(Modifier.height(8.dp))
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(if (isPrimary) "${w.short} · 最紧" else w.short, fontSize = 12.sp, modifier = Modifier.width(72.dp))
-        LinearProgressIndicator(
-            progress = { w.remainPct / 100f },
-            modifier = Modifier.weight(1f).height(8.dp),
-            color = color,
-            trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-            strokeCap = androidx.compose.ui.graphics.StrokeCap.Round,
-            drawStopIndicator = {}
-        )
+        // 自绘进度条：进度严格从轨道左端起画，避免 M3 圆头组件在小进度时与轨道分离
+        Box(
+            Modifier.weight(1f).height(8.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+        ) {
+            if (w.remainPct > 0) {
+                Box(
+                    Modifier.fillMaxWidth(w.remainPct / 100f).height(8.dp).background(color)
+                )
+            }
+        }
         Spacer(Modifier.width(10.dp))
         Text("${w.remainPct}%", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = color,
             modifier = Modifier.width(40.dp), textAlign = TextAlign.End)

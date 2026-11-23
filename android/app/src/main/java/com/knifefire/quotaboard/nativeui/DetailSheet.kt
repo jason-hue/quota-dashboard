@@ -1,6 +1,7 @@
 package com.knifefire.quotaboard.nativeui
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.background
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -10,6 +11,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -171,14 +173,18 @@ private fun WindowDetail(w: QuotaWindow, isPrimary: Boolean) {
                 Text("剩余 ${w.remainPct}%", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = color)
             }
             Spacer(Modifier.height(8.dp))
-            LinearProgressIndicator(
-                progress = { w.remainPct / 100f },
-                modifier = Modifier.fillMaxWidth().height(8.dp),
-                color = color,
-                trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                strokeCap = androidx.compose.ui.graphics.StrokeCap.Round,
-                drawStopIndicator = {}
-            )
+            // 自绘进度条：进度严格从轨道左端起画，避免 M3 圆头组件在小进度时与轨道分离
+            Box(
+                Modifier.fillMaxWidth().height(8.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+            ) {
+                if (w.remainPct > 0) {
+                    Box(
+                        Modifier.fillMaxWidth(w.remainPct / 100f).height(8.dp).background(color)
+                    )
+                }
+            }
             Spacer(Modifier.height(8.dp))
             val reset = listOf(Platform.fmtReset(w.resetAt), Platform.fmtCountdown(w.resetAt))
                 .filter { it.isNotBlank() }.joinToString(" · ")
