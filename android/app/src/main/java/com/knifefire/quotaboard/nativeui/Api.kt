@@ -74,15 +74,8 @@ object Api {
             val usedPct = l.optDouble("percentage", 0.0).toInt()
             val unit = l.optInt("unit", 0)
             val number = l.optInt("number", 0)
-            val short = when (unit) {
-                6 -> "本周"
-                3 -> "${if (number > 0) number else 5}小时"
-                5 -> "本月"
-                1 -> if (number > 1) "${number}天" else "每天"
-                else -> "${number}单位$unit"
-            }
             wins.add(QuotaWindow(
-                short = short,
+                short = QuotaWindow.shortOf(unit, number),
                 unit = unit,
                 usedPct = usedPct,
                 remainPct = (100 - usedPct).coerceIn(0, 100),
@@ -91,17 +84,17 @@ object Api {
                 resetAt = l.optString("nextResetTime", "").ifEmpty { null }
             ))
         }
-        val rank = mapOf(3 to 0, 1 to 1, 6 to 2, 5 to 3)
-        val sorted = wins.sortedBy { rank[it.unit] ?: 9 }
-        return acc.copy(level = level, windows = sorted, error = null, lastAt = System.currentTimeMillis())
+        return acc.copy(level = level, windows = QuotaWindow.sort(wins), error = null,
+            raw = body, lastAt = System.currentTimeMillis())
     }
 
     private fun fetchDeepSeek(acc: Account): Account {
         val body = get("$DEEPSEEK/user/balance", acc)
         val root = JSONObject(body)
         if (root.has("error")) throw Exception(root.optJSONObject("error")?.optString("message", "接口错误") ?: "接口错误")
-        val data = root.optJSONObject("data") ?: throw Exception("返回无 data")
-        val balance = data.optJSONArray("balances")?.optJSONObject(0) ?: JSONObject()
+        // 余额接口顶层就是 { is_available, balance_infos }，无 data 包裹；兼容 data 包裹的旧格式
+        val data = root.optJSONObject("data") ?: root
+        val balance = data.optJSONArray("balance_infos")?.optJSONObject(0) ?: JSONObject()
         val total = balance.optDouble("total_balance", 0.0)
         val currency = balance.optString("currency", "CNY")
         // DeepSeek 不返回额度窗口，用余额总额作为单一指标
@@ -110,6 +103,7 @@ object Api {
             balanceCurrency = currency,
             windows = emptyList(),
             error = null,
+            raw = body,
             lastAt = System.currentTimeMillis()
         )
     }

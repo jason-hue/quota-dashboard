@@ -2,7 +2,6 @@ package com.knifefire.quotaboard.nativeui
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -17,46 +16,143 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun HomeScreen(repo: Repository) {
+    val ctx = LocalContext.current
     var accounts by remember { mutableStateOf(repo.loadAccounts()) }
+    var settings by remember { mutableStateOf(repo.loadSettings()) }
     var themeMode by remember { mutableStateOf(repo.getThemeMode()) }
     var refreshing by remember { mutableStateOf(false) }
     var showThemeSheet by remember { mutableStateOf(false) }
-    var showAddSheet by remember { mutableStateOf(false) }
+    var showSettings by remember { mutableStateOf(false) }
+    var backupMode by remember { mutableStateOf<String?>(null) }
+    var detailId by remember { mutableStateOf<String?>(null) }
+    var editing by remember { mutableStateOf<Account?>(null) }
+    var showEditor by remember { mutableStateOf(false) }
+    var pendingClipboard by remember { mutableStateOf<String?>(null) }
+    var dismissedBackup by remember { mutableStateOf("") }
     var draggingIndex by remember { mutableIntStateOf(-1) }
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
+    val snackbar = remember { SnackbarHostState() }
+    val lifecycleOwner = LocalLifecycleOwner.current
 
-    fun persist() = repo.saveAccounts(accounts)
+    fun notify(msg: String) { scope.launch { snackbar.showSnackbar(msg) } }
 
-    fun refresh() {
-        if (refreshing) return
+    fun refreshAll() {
+        if (refreshing || accounts.isEmpty()) return
         scope.launch {
             refreshing = true
-            accounts = accounts.map { Api.fetch(it) }
-            persist()
+            val updated = accounts.map { if (it.token.isBlank()) it else Api.fetch(it) }
+            accounts = updated
+            repo.saveAccounts(updated)
             refreshing = false
         }
     }
 
-    // 长按拖拽排序：超过阈值就与相邻项交换，带动画
-    fun moveItem(from: Int, to: Int) {
-        if (from == to || to < 0 || to >= accounts.size) return
-        accounts = accounts.toMutableList().apply { add(to, removeAt(from)) }
-        draggingIndex = to
-        persist()
+    fun refreshOne(id: String) {
+        scope.launch {
+            refreshing = true
+            val updated = accounts.map { if (it.id == id && it.token.isNotBlank()) Api.fetch(it) else it }
+            accounts = updated
+            repo.saveAccounts(updated)
+            refreshing = false
+        }
+    }
+
+    fun saveAccount(a: Account) {
+        val old = accounts.find { it.id == a.id }
+        val credChanged = old == null || old.token != a.token || old.provider != a.provider
+        val finalA = if (credChanged) a.copy(
+            windows = emptyList(), level = "", balanceTotal = 0.0,
+            error = null, raw = null, lastAt = 0
+        ) else a
+        accounts = if (old == null) accounts + finalA
+        else accounts.map { if (it.id == a.id) finalA else it }
+        repo.saveAccounts(accounts)
+        showEditor = false
+        detailId = null
+        if (finalA.token.isNotBlank()) refreshOne(finalA.id)
+    }
+
+    fun deleteAccount(id: String) {
+        accounts = accounts.filter { it.id != id }
+        repo.saveAccounts(accounts)
+        showEditor = false
+        detailId = null
+        notify("已删除账号")
+    }
+
+    // 一次性迁移旧 WebView 版 localStorage 数据
+    LaunchedEffect(Unit) {
+        val n = LegacyMigration.run(ctx, repo)
+        if (n > 0) {
+            accounts = repo.loadAccounts()
+            settings = repo.loadSettings()
+            notify("已从旧版迁移 $n 个账号")
+        }
+    }
+
+    // 定时自动刷新
+    LaunchedEffect(settings.autoRefresh, settings.intervalMin) {
+        if (!settings.autoRefresh) return@LaunchedEffect
+        while (true) {
+            delay(settings.intervalMin * 60_000L)
+            if (!refreshing && accounts.isNotEmpty()) refreshAll()
+        }
+    }
+
+    // 回前台：剪贴板自动导入 + 超时自动刷新
+    val onResumeNow by rememberUpdatedState {
+        val s = repo.loadSettings()
+        if (s.autoImport) {
+            val t = Platform.readClipboard(ctx)
+            if (t.startsWith(Repository.BACKUP_PREFIX) && t != dismissedBackup) {
+                val n = repo.peekBackupCount(t)
+                if (n > 0) {
+                    if (accounts.isEmpty()) {
+                        val r = repo.importBackup(t, "replace", accounts)
+                        if (r.ok) {
+                            dismissedBackup = t
+                            accounts = repo.loadAccounts()
+                            notify("已从剪贴板自动恢复 $n 个账号")
+                            refreshAll()
+                        }
+                    } else {
+                        pendingClipboard = t
+                    }
+                }
+            }
+        }
+        val last = accounts.maxOfOrNull { it.lastAt } ?: 0
+        if (s.autoRefresh && System.currentTimeMillis() - last > 60_000 && accounts.isNotEmpty()) {
+            refreshAll()
+        }
+    }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) onResumeNow()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     BoardTheme(themeMode) {
         Scaffold(
+            snackbarHost = { SnackbarHost(snackbar) },
             topBar = {
                 TopAppBar(
                     title = { Text("额度看板", fontWeight = FontWeight.SemiBold) },
@@ -64,7 +160,10 @@ fun HomeScreen(repo: Repository) {
                         IconButton(onClick = { showThemeSheet = true }) {
                             Icon(Icons.Default.Palette, contentDescription = "主题")
                         }
-                        IconButton(onClick = { refresh() }, enabled = !refreshing) {
+                        IconButton(onClick = { showSettings = true }) {
+                            Icon(Icons.Default.Settings, contentDescription = "设置")
+                        }
+                        IconButton(onClick = { refreshAll() }, enabled = !refreshing) {
                             if (refreshing) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                             else Icon(Icons.Default.Refresh, contentDescription = "刷新")
                         }
@@ -77,7 +176,7 @@ fun HomeScreen(repo: Repository) {
             },
             floatingActionButton = {
                 ExtendedFloatingActionButton(
-                    onClick = { showAddSheet = true },
+                    onClick = { editing = null; showEditor = true },
                     icon = { Icon(Icons.Default.Add, contentDescription = null) },
                     text = { Text("添加账号") }
                 )
@@ -92,6 +191,8 @@ fun HomeScreen(repo: Repository) {
                         Text("还没有账号", fontSize = 18.sp, fontWeight = FontWeight.Medium)
                         Text("点右下角 ＋ 添加 GLM 或 DeepSeek", fontSize = 13.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("旧版数据会自动迁移，也可用设置里的导入备份", fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             } else {
@@ -104,7 +205,7 @@ fun HomeScreen(repo: Repository) {
                     itemsIndexed(accounts, key = { _, a -> a.id }) { index, acc ->
                         val isDragging = draggingIndex == index
                         var accumulatedY by remember { mutableFloatStateOf(0f) }
-                        val cardHeightPx = 220f
+                        val cardHeightPx = 260f
                         Card(
                             shape = RoundedCornerShape(24.dp),
                             colors = CardDefaults.cardColors(
@@ -127,7 +228,11 @@ fun HomeScreen(repo: Repository) {
                                             val steps = (accumulatedY / cardHeightPx).roundToInt()
                                             if (steps != 0) {
                                                 val target = (index + steps).coerceIn(0, accounts.size - 1)
-                                                moveItem(index, target)
+                                                if (target != index) {
+                                                    accounts = accounts.toMutableList().apply { add(target, removeAt(index)) }
+                                                    draggingIndex = target
+                                                    repo.saveAccounts(accounts)
+                                                }
                                                 accumulatedY = 0f
                                             }
                                         },
@@ -136,13 +241,40 @@ fun HomeScreen(repo: Repository) {
                                     )
                                 }
                         ) {
-                            AccountCardContent(acc, isDragging)
+                            AccountCardContent(
+                                acc = acc,
+                                dragging = isDragging,
+                                onDetail = { detailId = acc.id },
+                                onEdit = { editing = acc; showEditor = true }
+                            )
                         }
                     }
                 }
             }
         }
 
+        // 详情弹层
+        detailId?.let { id ->
+            accounts.find { it.id == id }?.let { acc ->
+                DetailSheet(
+                    acc = acc,
+                    onDismiss = { detailId = null },
+                    onEdit = { editing = acc; detailId = null; showEditor = true }
+                )
+            }
+        }
+
+        // 新增 / 编辑弹层
+        if (showEditor) {
+            AccountEditorSheet(
+                initial = editing,
+                onDismiss = { showEditor = false },
+                onSave = { saveAccount(it) },
+                onDelete = if (editing != null) { { id: String -> deleteAccount(id) } } else null
+            )
+        }
+
+        // 主题弹层
         if (showThemeSheet) {
             ModalBottomSheet(onDismissRequest = { showThemeSheet = false }) {
                 Column(Modifier.padding(16.dp).navigationBarsPadding()) {
@@ -159,19 +291,67 @@ fun HomeScreen(repo: Repository) {
             }
         }
 
-        if (showAddSheet) {
-            AddAccountSheet(onDismiss = { showAddSheet = false }, onAdd = { newAcc ->
-                accounts = accounts + newAcc
-                persist()
-                showAddSheet = false
-                // 添加后立即查询该账号额度
-                scope.launch {
-                    refreshing = true
-                    accounts = accounts.map { if (it.id == newAcc.id) Api.fetch(it) else it }
-                    persist()
-                    refreshing = false
+        // 设置弹层
+        if (showSettings) {
+            SettingsSheet(
+                settings = settings,
+                themeMode = themeMode,
+                onSettingsChange = { settings = it; repo.saveSettings(it) },
+                onThemeClick = { showSettings = false; showThemeSheet = true },
+                onExport = { showSettings = false; backupMode = "export" },
+                onImport = { showSettings = false; backupMode = "import" },
+                onClearAll = {
+                    accounts = emptyList()
+                    repo.saveAccounts(emptyList())
+                    showSettings = false
+                    detailId = null
+                    notify("已清空全部数据")
+                },
+                onDismiss = { showSettings = false }
+            )
+        }
+
+        // 备份 / 恢复弹层
+        backupMode?.let { mode ->
+            BackupSheet(
+                mode = mode,
+                accounts = accounts,
+                repo = repo,
+                onDismiss = { backupMode = null },
+                onImported = { r ->
+                    accounts = repo.loadAccounts()
+                    backupMode = null
+                    notify(r.message)
+                    refreshAll()
+                },
+                onSelfBackup = { dismissedBackup = it },
+                onNotify = { notify(it) }
+            )
+        }
+
+        // 剪贴板检测到备份（已有账号时询问）
+        pendingClipboard?.let { t ->
+            val n = repo.peekBackupCount(t)
+            AlertDialog(
+                onDismissRequest = { pendingClipboard = null; dismissedBackup = t },
+                title = { Text("发现凭证备份") },
+                text = { Text("检测到剪贴板中有凭证备份（$n 个账号）。\n\n合并导入会保留现有账号，忽略则不再提示这一份。") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        val r = repo.importBackup(t, "merge", accounts)
+                        dismissedBackup = t
+                        pendingClipboard = null
+                        if (r.ok) {
+                            accounts = repo.loadAccounts()
+                            notify(r.message)
+                            refreshAll()
+                        } else notify(r.message)
+                    }) { Text("合并导入") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { dismissedBackup = t; pendingClipboard = null }) { Text("忽略") }
                 }
-            })
+            )
         }
     }
 }
@@ -196,7 +376,12 @@ private fun ThemeOption(key: String, title: String, sub: String, current: String
 }
 
 @Composable
-private fun AccountCardContent(acc: Account, dragging: Boolean) {
+private fun AccountCardContent(
+    acc: Account,
+    dragging: Boolean,
+    onDetail: () -> Unit,
+    onEdit: () -> Unit
+) {
     val isDS = acc.provider == "deepseek"
     val providerLabel = when (acc.provider) {
         "glm-global" -> "Z.AI GLM"
@@ -226,13 +411,26 @@ private fun AccountCardContent(acc: Account, dragging: Boolean) {
         } else {
             acc.windows.forEach { w -> WindowRow(w, w == acc.primary) }
         }
+        Spacer(Modifier.height(8.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(if (acc.lastAt > 0) "更新于 ${Platform.fmtTime(acc.lastAt)}" else "尚未更新",
+                fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f))
+            TextButton(onClick = onEdit, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                Text("编辑", fontSize = 12.sp)
+            }
+            TextButton(onClick = onDetail, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                Text("详情 ›", fontSize = 12.sp)
+            }
+        }
     }
 }
 
 @Composable
 private fun StatusBadge(acc: Account) {
     val isDS = acc.provider == "deepseek"
-    val danger = acc.error != null || (!isDS && acc.primary?.remainPct == 0)
+    val danger = acc.error != null || (!isDS && acc.primary?.remainPct == 0) ||
+            (isDS && acc.balanceTotal <= 0 && acc.lastAt > 0)
     val warn = !danger && !isDS && (acc.primary?.remainPct ?: 100) <= 20
     val (label, color) = when {
         danger -> "额度告急" to MaterialTheme.colorScheme.error
@@ -273,6 +471,6 @@ private fun WindowRow(w: QuotaWindow, isPrimary: Boolean) {
         )
         Spacer(Modifier.width(10.dp))
         Text("${w.remainPct}%", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = color,
-            modifier = Modifier.width(40.dp), textAlign = androidx.compose.ui.text.style.TextAlign.End)
+            modifier = Modifier.width(40.dp), textAlign = TextAlign.End)
     }
 }

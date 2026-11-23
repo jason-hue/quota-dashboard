@@ -9,20 +9,15 @@
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
 
+        <!-- 旧 WebView 版保留作回退，但不再作为启动入口 -->
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation"
             android:name=".MainActivity"
             android:label="@string/title_activity_main"
             android:theme="@style/AppTheme.NoActionBarLaunch"
             android:launchMode="singleTask"
-            android:exported="true">
+            android:exported="false" />
 
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-
-        </activity>
 
         <activity
             android:name=".LoginActivity"
@@ -30,11 +25,17 @@
             android:theme="@style/AppTheme.NoActionBarLaunch"
             android:exported="false" />
 
+        <!-- 全原生 Compose 主页：当前启动入口 -->
         <activity
             android:name=".NativeHomeActivity"
             android:label="@string/title_activity_main"
             android:theme="@style/Theme.QuotaBoard.Compose"
-            android:exported="false" />
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
 
         <provider
             android:name="androidx.core.content.FileProvider"
