@@ -30,6 +30,12 @@
             android:theme="@style/AppTheme.NoActionBarLaunch"
             android:exported="false" />
 
+        <activity
+            android:name=".NativeHomeActivity"
+            android:label="@string/title_activity_main"
+            android:theme="@style/Theme.QuotaBoard.Compose"
+            android:exported="false" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
